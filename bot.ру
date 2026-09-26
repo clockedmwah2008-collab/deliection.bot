@@ -1,0 +1,146 @@
+import discord
+from discord.ext import commands
+from discord.ui import Button, View
+import json
+import os
+
+# --- КОНФИГУРАЦИЯ ---
+TOKEN = 'ТОКЕН = os.getenv('ТОКЕН')
+WHITELIST_FILE = 'whitelist.json'
+
+# Словарь доступных скриптов (название: ссылка на raw-скрипт)
+AVAILABLE_SCRIPTS = {
+    "script_for_friend_1": "https://pastebin.com/raw/xxxxxx1",
+    "script_for_friend_2": "https://pastebin.com/raw/xxxxxx2",
+    "vip_script": "https://pastebin.com/raw/vipscript",
+}
+
+# --- БАЗА ДАННЫХ ---
+def load_whitelist():
+    if not os.path.exists(WHITELIST_FILE):
+        return {}
+    with open(WHITELIST_FILE, 'r') as f:
+        return json.load(f)
+
+def save_whitelist(data):
+    with open(WHITELIST_FILE, 'w') as f:
+        json.dump(data, f, indent=4)
+
+# --- НАСТРОЙКА БОТА ---
+intents = discord.Intents.default()
+intents.message_content = True
+bot = commands.Bot(command_prefix='!', intents=intents)
+
+# --- КНОПКИ ПАНЕЛИ ---
+class PanelView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Get Script", style=discord.ButtonStyle.green, custom_id="get_script")
+    async def get_script(self, interaction: discord.Interaction, button: Button):
+        user_id = str(interaction.user.id)
+        whitelist = load_whitelist()
+
+        if user_id not in whitelist:
+            await interaction.response.send_message("❌ Вы не в вайтлисте! Обратитесь к администратору.", ephemeral=True)
+            return
+
+        script_name = whitelist[user_id].get("script_name")
+        
+        if not script_name or script_name not in AVAILABLE_SCRIPTS:
+            await interaction.response.send_message("❌ Для вас не назначен скрипт. Обратитесь к администратору.", ephemeral=True)
+            return
+
+        script_url = AVAILABLE_SCRIPTS[script_name]
+
+        embed = discord.Embed(
+            title=f"Ваш скрипт: {script_name}",
+            description="Скопируйте текст ниже и вставьте в executor.",
+            color=0x2b2d31
+        )
+        embed.add_field(
+            name="Loader",
+            value=f"```lua\nloadstring(game:HttpGet('{script_url}'))()\n```",
+            inline=False
+        )
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @discord.ui.button(label="Reset HWID", style=discord.ButtonStyle.red, custom_id="reset_hwid")
+    async def reset_hwid(self, interaction: discord.Interaction, button: Button):
+        user_id = str(interaction.user.id)
+        whitelist = load_whitelist()
+
+        if user_id in whitelist:
+            whitelist[user_id]['hwid'] = None
+            save_whitelist(whitelist)
+            await interaction.response.send_message("✅ Ваш HWID успешно сброшен! Теперь вы можете зайти с нового устройства.", ephemeral=True)
+        else:
+            await interaction.response.send_message("❌ Вас нет в базе данных.", ephemeral=True)
+
+# --- КОМАНДЫ ДЛЯ АДМИНА ---
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def adduser(ctx, member: discord.Member, script_name: str):
+    """Использование: !adduser @Друг script_for_friend_1"""
+    if script_name not in AVAILABLE_SCRIPTS:
+        await ctx.send(f"❌ Скрипт `{script_name}` не найден. Доступные: {', '.join(AVAILABLE_SCRIPTS.keys())}")
+        return
+
+    whitelist = load_whitelist()
+    user_id = str(member.id)
+
+    if user_id not in whitelist:
+        whitelist[user_id] = {"hwid": None, "script_name": script_name}
+        save_whitelist(whitelist)
+        await ctx.send(f"✅ Пользователь {member.mention} добавлен. Ему выдан скрипт: `{script_name}`.")
+    else:
+        whitelist[user_id]['script_name'] = script_name
+        save_whitelist(whitelist)
+        await ctx.send(f"🔄 Пользователю {member.mention} обновлен скрипт на `{script_name}`.")
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def removeuser(ctx, member: discord.Member):
+    whitelist = load_whitelist()
+    user_id = str(member.id)
+    if user_id in whitelist:
+        del whitelist[user_id]
+        save_whitelist(whitelist)
+        await ctx.send(f"🗑️ Пользователь {member.mention} удален из вайтлиста.")
+    else:
+        await ctx.send("⚠️ Пользователя нет в базе.")
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def listusers(ctx):
+    whitelist = load_whitelist()
+    if not whitelist:
+        await ctx.send("База пуста.")
+        return
+    
+    text = "**Вайтлист:**\n"
+    for uid, data in whitelist.items():
+        script = data.get('script_name', 'Не назначен')
+        hwid = data.get('hwid', 'Не привязан')
+        text += f"<@{uid}> — Скрипт: `{script}` | HWID: `{hwid}`\n"
+    
+    await ctx.send(text)
+
+# --- ЗАПУСК ПАНЕЛИ ---
+@bot.event
+async def on_ready():
+    print(f'Бот {bot.user} запущен!')
+    # ЗАМЕНИТЕ ID КАНАЛА НА ВАШ
+    channel = bot.get_channel(123456789012345678) 
+    if channel:
+        embed = discord.Embed(
+            title="Daisy.exe Scripts Panel",
+            description="Click Get Script to access the script. Copy and paste all in your executor.\n\n**Instructions**\n1. Click Get Script\n2. Copy and paste the loader into an executor\n3. Enjoy <3",
+            color=0xeb459e
+        )
+        embed.set_footer(text="Powered by @religiousbinding - dm for key systems")
+        await channel.send(embed=embed, view=PanelView())
+
+bot.run(TOKEN)
