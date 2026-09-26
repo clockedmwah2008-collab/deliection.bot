@@ -5,7 +5,7 @@ import json
 import os
 
 # --- КОНФИГУРАЦИЯ ---
-TOKEN = 'ТОКЕН = os.getenv('ТОКЕН')
+TOKEN = os.getenv('TOKEN')
 WHITELIST_FILE = 'whitelist.json'
 
 # Словарь доступных скриптов (название: ссылка на raw-скрипт)
